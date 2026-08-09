@@ -726,6 +726,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.16.0/firebase-app-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.16.0/firebase-database-compat.js"></script>
 <script>
 (function(){
 "use strict";
@@ -834,19 +836,72 @@ var CHAPTER_LABELS = {1:"Money 101",2:"Saving & Budgeting",3:"Investing Fundamen
 /* =========================================================
    STORAGE HELPERS
 ========================================================= */
+/* =========================================================
+   STORAGE
+   ---------------------------------------------------------
+   This site now runs on your own domain instead of inside
+   Claude, so there's no built-in shared database anymore.
+   Personal data (name/email/progress) lives in this browser's
+   localStorage, so it persists on your own device across
+   visits, but not between different devices.
+   Shared counters (learner count, quiz completions, org
+   partners) need a real cross-visitor database, so they use
+   Firebase Realtime Database. Until you paste in your own
+   Firebase project config below, shared counters quietly fall
+   back to this browser's localStorage too \u2014 they'll work for
+   you while testing, but won't be shared with other visitors
+   until Firebase is connected.
+========================================================= */
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCfo4G2kYi-o3QS47n7wIN_Tue_8Mdy2KE",
+  authDomain: "teen-wealth-initiative-d13af.firebaseapp.com",
+  databaseURL: "https://teen-wealth-initiative-d13af-default-rtdb.firebaseio.com",
+  projectId: "teen-wealth-initiative-d13af",
+  storageBucket: "teen-wealth-initiative-d13af.firebasestorage.app",
+  messagingSenderId: "847188663418",
+  appId: "1:847188663418:web:08c01a379bf4a17a4cefc3"
+};
+var FIREBASE_READY = false;
+var fbDb = null;
+(function initFirebase(){
+  if(typeof firebase === "undefined") return;
+  if(FIREBASE_CONFIG.apiKey.indexOf("YOUR_") === 0) return;
+  try{ firebase.initializeApp(FIREBASE_CONFIG); fbDb = firebase.database(); FIREBASE_READY = true; }
+  catch(e){ console.error("Firebase init failed", e); }
+})();
+
 async function storageGet(key, shared){
-  try{ var res = await window.storage.get(key, !!shared); return res && typeof res.value !== "undefined" ? res.value : null; }
-  catch(e){ return null; }
+  if(shared){
+    if(FIREBASE_READY){
+      try{ var snap = await fbDb.ref(key).once("value"); var v = snap.val(); return (v===null || typeof v==="undefined") ? null : String(v); }
+      catch(e){ console.error("firebase get failed", e); return null; }
+    }
+    try{ return localStorage.getItem("twi:shared:" + key); }catch(e){ return null; }
+  }
+  try{ return localStorage.getItem(key); }catch(e){ return null; }
 }
 async function storageSet(key, value, shared){
-  try{ await window.storage.set(key, value, !!shared); }catch(e){ console.error("storage set failed", e); }
+  if(shared){
+    if(FIREBASE_READY){
+      try{ var n = Number(value); await fbDb.ref(key).set(isNaN(n) ? value : n); }catch(e){ console.error("firebase set failed", e); }
+      return;
+    }
+    try{ localStorage.setItem("twi:shared:" + key, value); }catch(e){ console.error(e); }
+    return;
+  }
+  try{ localStorage.setItem(key, value); }catch(e){ console.error("storage set failed", e); }
 }
 async function incrementShared(key){
-  var raw = await storageGet(key, true);
-  var n = raw ? parseInt(raw,10) : 0;
-  if(isNaN(n)) n = 0;
+  if(FIREBASE_READY){
+    try{
+      var res = await fbDb.ref(key).transaction(function(cur){ return (cur || 0) + 1; });
+      return res.committed ? res.snapshot.val() : null;
+    }catch(e){ console.error("firebase increment failed", e); }
+  }
+  var n = 0;
+  try{ n = parseInt(localStorage.getItem("twi:shared:" + key) || "0", 10); if(isNaN(n)) n = 0; }catch(e){}
   n += 1;
-  await storageSet(key, String(n), true);
+  try{ localStorage.setItem("twi:shared:" + key, String(n)); }catch(e){}
   return n;
 }
 
