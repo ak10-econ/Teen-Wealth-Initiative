@@ -1068,10 +1068,16 @@ async function registerUniqueLearner(email){
         return true;
       });
       if(res.committed){ await incrementShared("twi:total-learners"); }
-      return;
-    }catch(e){ console.error("firebase unique-learner check failed", e); }
+    }catch(e){
+      // Fail SAFE: if we can't confirm uniqueness (e.g. a Firebase rules
+      // permission error), do NOT increment the shared counter \u2014 better to
+      // undercount than double-count. Check that your database rules allow
+      // read/write on the "twi:seen-emails" path.
+      console.error("Unique-learner check failed \u2014 learner count NOT incremented. Check your Firebase rules allow twi:seen-emails.", e);
+    }
+    return;
   }
-  // local fallback when Firebase isn't configured (per-browser only)
+  // local fallback ONLY when Firebase was never configured at all (per-browser only)
   var seenKey = "twi:shared:twi:seen-emails:" + key;
   var already = null;
   try{ already = localStorage.getItem(seenKey); }catch(e){}
